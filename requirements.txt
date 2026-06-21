@@ -25,6 +25,9 @@ jsonschema>=4.16.0
 # Цветной вывод в терминале
 colorama>=0.4.5
 
+# Веб-версия (webapp.py)
+Flask>=3.0.0
+
 # Для работы с email
 email-validator>=1.3.0
 
