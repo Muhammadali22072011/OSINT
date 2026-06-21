@@ -39,44 +39,44 @@ class SocialAnalyzer:
         self.results = {}
     
     def analyze_username(self, username):
-        """Анализ имени пользователя на различных платформах"""
+        """РЕАЛЬНАЯ проверка имени пользователя на различных платформах.
+
+        Использует username_checker (настоящие HTTP-запросы), а не симуляцию.
+        Возвращает список найденных профилей в прежнем формате.
+        """
         print(f"\n{Colors.YELLOW}🔍 Поиск пользователя: {username}{Colors.END}")
-        
-        platforms = {
-            "VKontakte": f"https://vk.com/{username}",
-            "Instagram": f"https://instagram.com/{username}",
-            "Twitter": f"https://twitter.com/{username}",
-            "Facebook": f"https://facebook.com/{username}",
-            "GitHub": f"https://github.com/{username}",
-            "Telegram": f"https://t.me/{username}",
-            "YouTube": f"https://youtube.com/@{username}",
-            "TikTok": f"https://tiktok.com/@{username}",
-            "LinkedIn": f"https://linkedin.com/in/{username}",
-            "Reddit": f"https://reddit.com/user/{username}"
-        }
-        
+        print(f"{Colors.CYAN}🌐 Реальная проверка платформ (HTTP)...{Colors.END}")
+
+        try:
+            from username_checker import UsernameChecker
+        except ImportError:
+            print(f"{Colors.RED}❌ Модуль username_checker не найден{Colors.END}")
+            return []
+
+        try:
+            results = UsernameChecker(timeout=8.0).check(username)
+        except ValueError as exc:
+            print(f"{Colors.RED}❌ {exc}{Colors.END}")
+            return []
+
         found_profiles = []
-        
-        print(f"{Colors.CYAN}🌐 Проверка платформ...{Colors.END}")
-        
-        for platform, url in platforms.items():
-            print(f"  • Проверка {platform}...", end="")
-            
-            # Симуляция проверки
-            time.sleep(random.uniform(0.5, 1.5))
-            
-            # Случайная симуляция найденных профилей
-            if random.choice([True, False, False]):  # 33% шанс найти профиль
+        for r in results:
+            if r["status"] == "found":
+                mark = f"{Colors.GREEN}✅ НАЙДЕН{Colors.END}"
                 found_profiles.append({
-                    "platform": platform,
-                    "url": url,
+                    "platform": r["platform"],
+                    "url": r["url"],
                     "status": "Найден",
-                    "activity": self.generate_activity_data()
                 })
-                print(f" {Colors.GREEN}✅ НАЙДЕН{Colors.END}")
+            elif r["status"] == "not_found":
+                mark = f"{Colors.RED}❌ Не найден{Colors.END}"
             else:
-                print(f" {Colors.RED}❌ Не найден{Colors.END}")
-        
+                detail = r.get("error") or f"HTTP {r.get('http_code')}"
+                mark = f"{Colors.YELLOW}❓ Неясно ({detail}){Colors.END}"
+            print(f"  • {r['platform']:<12} {mark}")
+
+        print(f"\n{Colors.BOLD}Найдено профилей: {len(found_profiles)} "
+              f"из {len(results)}{Colors.END}")
         return found_profiles
     
     def generate_activity_data(self):
@@ -90,14 +90,21 @@ class SocialAnalyzer:
         }
     
     def analyze_vk_profile(self, vk_url):
-        """Анализ профиля ВКонтакте"""
+        """Анализ профиля ВКонтакте.
+
+        ВНИМАНИЕ: данные ниже ВЫМЫШЛЕННЫЕ (демонстрация формата). Реальный
+        разбор профиля ВК требует официального VK API с токеном доступа и
+        согласия пользователя. Без токена настоящие данные получить нельзя.
+        """
         print(f"\n{Colors.PURPLE}📱 АНАЛИЗ ПРОФИЛЯ ВКОНТАКТЕ{Colors.END}")
+        print(f"{Colors.RED}⚠️  [ДЕМО] Данные ниже ВЫМЫШЛЕНЫ — нужен VK API "
+              f"токен для настоящих данных{Colors.END}")
         print(f"URL: {vk_url}")
-        
+
         # Извлечение ID из URL
         user_id = self.extract_vk_id(vk_url)
-        
-        # Симуляция данных профиля
+
+        # Демонстрационные (вымышленные) данные профиля
         profile_data = {
             "id": user_id,
             "name": random.choice(["Александр Петров", "Мария Иванова", "Дмитрий Сидоров"]),

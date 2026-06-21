@@ -25,6 +25,7 @@ from flask import Flask, jsonify, render_template_string, request
 
 from username_checker import UsernameChecker
 from steganography_crypto import CryptoAnalyzer, SteganographyEngine
+import osint_real
 
 app = Flask(__name__)
 
@@ -93,6 +94,9 @@ PAGE = r"""<!doctype html>
     <button class="tab" data-tab="caesar">🔓 Цезарь</button>
     <button class="tab" data-tab="decode">🧬 Декодер</button>
     <button class="tab" data-tab="stego">🫥 Стеганография</button>
+    <button class="tab" data-tab="domain">🌐 Домен</button>
+    <button class="tab" data-tab="ip">📍 IP</button>
+    <button class="tab" data-tab="email">📧 Email</button>
   </div>
 
   <!-- USERNAME -->
@@ -135,6 +139,32 @@ PAGE = r"""<!doctype html>
     <button class="go" onclick="hide()">Скрыть</button>
     <button class="go" onclick="extract()">Извлечь из «носителя» выше</button>
     <div class="out" id="s-out"></div>
+  </div>
+
+  <!-- DOMAIN -->
+  <div class="panel" id="domain">
+    <label>Домен</label>
+    <input id="dm-name" placeholder="example.com" value="github.com" autocomplete="off">
+    <button class="go" onclick="domain()">DNS + WHOIS (реально)</button>
+    <div class="muted">Настоящие DNS-записи и WHOIS. WHOIS требует доступ к порту 43.</div>
+    <div class="out" id="dm-out"></div>
+  </div>
+
+  <!-- IP -->
+  <div class="panel" id="ip">
+    <label>IP-адрес</label>
+    <input id="ip-addr" placeholder="8.8.8.8" value="8.8.8.8" autocomplete="off">
+    <button class="go" onclick="ipinfo()">Геолокация + reverse DNS (реально, без ключа)</button>
+    <div class="out" id="ip-out"></div>
+  </div>
+
+  <!-- EMAIL -->
+  <div class="panel" id="email">
+    <label>Email</label>
+    <input id="em-addr" placeholder="user@example.com" value="test@gmail.com" autocomplete="off">
+    <button class="go" onclick="emailCheck()">Проверить формат + MX (реально)</button>
+    <div class="muted">Проверка утечек (HIBP) включится автоматически, если задан HIBP_API_KEY.</div>
+    <div class="out" id="em-out"></div>
   </div>
 </div>
 
@@ -195,6 +225,43 @@ async function extract() {
   if (d.error){ out.textContent='❌ '+d.error; return; }
   out.innerHTML = d.secret ? `<div class="found">🔓 Извлечено: ${d.secret}</div>`
                            : `<div class="nf">Ничего не извлечено (метод/носитель не совпадают).</div>`;
+}
+function kv(obj){ return Object.entries(obj).map(([k,v]) =>
+  `<div class="row"><span class="name">${k}</span><span>${v==null?'—':(Array.isArray(v)?v.join('<br>'):v)}</span></div>`).join(''); }
+async function domain() {
+  const btn=event.target, out=$('dm-out'); busy(btn,true); out.textContent='⏳ Запрашиваю DNS/WHOIS...';
+  const d = await post('/api/domain', {domain:$('dm-name').value.trim()});
+  let html = '<b>DNS:</b>';
+  for (const [t,vals] of Object.entries(d.dns.records||{}))
+    html += `<div class="row"><span class="name">${t}</span><span>${vals.length?vals.join('<br>'):'<span class="muted">—</span>'}</span></div>`;
+  html += '<br><b>WHOIS:</b>';
+  if (d.whois.error) html += `<div class="unk">${d.whois.error}</div>`;
+  else html += kv({registrar:d.whois.registrar, created:d.whois.creation_date,
+                   expires:d.whois.expiration_date, country:d.whois.country,
+                   name_servers:d.whois.name_servers});
+  out.innerHTML = html; busy(btn,false);
+}
+async function ipinfo() {
+  const btn=event.target, out=$('ip-out'); busy(btn,true); out.textContent='⏳';
+  const d = await post('/api/ip', {ip:$('ip-addr').value.trim()});
+  if (d.geo.error) { out.innerHTML = `<div class="unk">geo: ${d.geo.error}</div>`; }
+  else out.innerHTML = kv({source:d.geo.source, country:d.geo.country, region:d.geo.region,
+      city:d.geo.city, lat:d.geo.lat, lon:d.geo.lon, isp:d.geo.isp, asn:d.geo.asn,
+      'reverse DNS':d.rdns.hostname||d.rdns.error});
+  busy(btn,false);
+}
+async function emailCheck() {
+  const btn=event.target, out=$('em-out'); busy(btn,true); out.textContent='⏳';
+  const d = await post('/api/email', {email:$('em-addr').value.trim()});
+  const v = d.validate;
+  let html = kv({'формат ok':v.valid_format, domain:v.domain, 'есть MX':v.has_mx, MX:v.mx});
+  if (v.error) html += `<div class="unk">${v.error}</div>`;
+  if (d.hibp) {
+    if (d.hibp.needs_key) html += `<div class="unk" style="margin-top:8px">HIBP: ${d.hibp.error}</div>`;
+    else if (d.hibp.breached) html += `<div class="nf" style="margin-top:8px">⚠️ В утечках: ${d.hibp.breaches.map(b=>b.name).join(', ')}</div>`;
+    else if (d.hibp.breached===false) html += `<div class="found" style="margin-top:8px">✅ Утечек не найдено</div>`;
+  }
+  out.innerHTML = html; busy(btn,false);
 }
 </script>
 </body>
@@ -260,6 +327,33 @@ def api_stego_extract():
     except Exception as exc:  # noqa: BLE001
         return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
     return jsonify({"secret": secret or ""})
+
+
+@app.route("/api/domain", methods=["POST"])
+def api_domain():
+    domain = (request.get_json(silent=True) or {}).get("domain", "").strip()
+    if not domain:
+        return jsonify({"error": "пустой домен"}), 400
+    return jsonify({"dns": osint_real.dns_records(domain),
+                    "whois": osint_real.whois_info(domain)})
+
+
+@app.route("/api/ip", methods=["POST"])
+def api_ip():
+    ip = (request.get_json(silent=True) or {}).get("ip", "").strip()
+    if not ip:
+        return jsonify({"error": "пустой IP"}), 400
+    return jsonify({"geo": osint_real.ip_geolocation(ip),
+                    "rdns": osint_real.reverse_dns(ip)})
+
+
+@app.route("/api/email", methods=["POST"])
+def api_email():
+    email = (request.get_json(silent=True) or {}).get("email", "").strip()
+    if not email:
+        return jsonify({"error": "пустой email"}), 400
+    return jsonify({"validate": osint_real.email_validate(email),
+                    "hibp": osint_real.hibp_breaches(email)})
 
 
 if __name__ == "__main__":
